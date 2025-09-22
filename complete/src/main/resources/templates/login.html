@@ -1,19 +1,32 @@
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
-    <head>
-        <title>Spring Security Example </title>
-    </head>
-    <body>
-        <div th:if="${param.error}">
-            Invalid username and password.
+<head>
+    <title>Login</title>
+    <script>
+        function togglePassword() {
+            var pwd = document.getElementById('password');
+            pwd.type = pwd.type === 'password' ? 'text' : 'password';
+        }
+    </script>
+</head>
+<body>
+    <h2>Login</h2>
+    <div th:if="${param.error}">
+        <span style="color:red">Invalid username or password.</span>
+    </div>
+    <form th:action="@{/login}" method="post">
+        <div>
+            <label>Username:</label>
+            <input type="text" name="username" required />
         </div>
-        <div th:if="${param.logout}">
-            You have been logged out.
+        <div>
+            <label>Password:</label>
+            <input type="password" name="password" id="password" required />
+            <button type="button" onclick="togglePassword()">Show/Hide</button>
         </div>
-        <form th:action="@{/login}" method="post">
-            <div><label> User Name : <input type="text" name="username"/> </label></div>
-            <div><label> Password: <input type="password" name="password"/> </label></div>
-            <div><input type="submit" value="Sign In"/></div>
-        </form>
-    </body>
+        <div>
+            <button type="submit">Login</button>
+        </div>
+    </form>
+</body>
 </html>
