@@ -1,0 +1,25 @@
+# Common ignores
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+*.class
+
+# Gradle caches and build outputs
+.gradle/
+build/
+out/
+bin/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node/Yarn (if present for frontend assets)
+node_modules/
+yarn.lock
+package-lock.json
