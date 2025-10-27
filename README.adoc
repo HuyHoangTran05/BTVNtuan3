@@ -3,7 +3,7 @@
 :toc:
 :toclevels: 2
 
-Dự án minh họa Spring Security với Thymeleaf. Bạn có thể chạy trực tiếp (Gradle), bằng Docker Compose (ứng dụng + MySQL), hoặc triển khai trên Kubernetes.
+Dự án minh họa Spring Security với Thymeleaf. Bạn có thể chạy trực tiếp (Gradle), bằng Docker Compose (ứng dụng + MySQL), hoặc triển khai trên Kubernetes. Ngoài ra, repo đã kèm sẵn pipeline CI/CD với GitHub Actions và ArgoCD.
 
 == 1) Yêu cầu
 
@@ -11,11 +11,14 @@ Dự án minh họa Spring Security với Thymeleaf. Bạn có thể chạy tr�
 - Gradle Wrapper (đã kèm dự án)
 - Docker Desktop (tùy chọn, nếu bạn muốn chạy bằng Docker/Compose)
 - MySQL 8 (tùy chọn, nếu bạn muốn chạy local không dùng Docker)
+- Kubernetes cluster (tùy chọn, cho phần K8s/ArgoCD)
 
 == 2) Cấu trúc thư mục
 
 - `initial/` – bước khởi đầu (ít tính năng hơn)
-- `complete/` – phiên bản hoàn chỉnh (được dùng cho chạy Docker và hướng dẫn dưới đây)
+- `complete/` – phiên bản hoàn chỉnh (dùng cho Docker/K8s và hướng dẫn dưới đây)
+- `k8s/` – manifest Kubernetes (Deployment/Service/MySQL/…)
+- `.github/workflows/` – workflow GitHub Actions (CI/CD)
 
 == 3) Chạy LOCAL (không Docker)
 
@@ -132,11 +135,11 @@ Các manifest đã được cung cấp trong thư mục `k8s/`:
 - `mysql-secret.yaml` – Thông tin DB (root, user/app)
 - `mysql-service.yaml` – Service nội bộ cho MySQL
 - `mysql-statefulset.yaml` – StatefulSet MySQL (PVC 1Gi)
-- `app-deployment.yaml` – Deployment Spring Boot app (image `securingweb:1.0`)
+- `app-deployment.yaml` – Deployment Spring Boot app (image `securingweb:1.0` – sẽ được CI/CD ghi đè bằng Kustomize)
 - `app-service.yaml` – Service nội bộ cho app
-- `kustomization.yaml` – Gom tất cả manifest ở trên
+- `kustomization.yaml` – Gom tất cả manifest ở trên (CI/CD sẽ chỉnh image tại đây)
 
-1. Build image ứng dụng
+. Build image ứng dụng
 
 - Docker Desktop (Kubernetes bật sẵn) dùng chung Docker Engine, nên chỉ cần build local:
 
@@ -167,7 +170,7 @@ docker build -t securingweb:1.0 -f Dockerfile .
 minikube image load securingweb:1.0
 ----
 
-2. Tạo namespace và apply manifest
+. Tạo namespace và apply manifest
 
 [source,batch]
 ----
@@ -183,7 +186,7 @@ Kiểm tra trạng thái:
 kubectl -n securingweb get pods -w
 ----
 
-3. Truy cập ứng dụng
+. Truy cập ứng dụng
 
 Vì Service đang là ClusterIP, dùng port-forward để truy cập từ máy local:
 
@@ -198,7 +201,7 @@ Thông tin đăng nhập mẫu:
 - Admin: `admin` / `admin123`
 - User: `user` / `user123`
 
-4. Dừng và dọn dẹp
+. Dừng và dọn dẹp
 
 [source,batch]
 ----
@@ -211,3 +214,76 @@ Ghi chú:
 - Dung lượng PVC MySQL mặc định là 1Gi (trong `mysql-statefulset.yaml`).
 - Với Minikube/Docker Desktop, StorageClass mặc định thường khả dụng; nếu Pod MySQL ở trạng thái `Pending`, kiểm tra StorageClass và PVC.
 - Trong môi trường production, cân nhắc dùng MySQL managed service thay vì chạy trong cluster.
+
+== 12) CI/CD với GitHub Actions + ArgoCD
+
+Mục tiêu: Tự động hóa build/test, build & push Docker image lên GHCR, cập nhật tag image trong `k8s/kustomization.yaml`, và để ArgoCD tự đồng bộ triển khai.
+
+Sơ đồ tham khảo: image:https://miro.medium.com/v2/resize:fit:1400/1*HGBcQQTfbjnn9NrnbFB1mw.png[CI/CD flow]
+
+=== 12.1 Chuẩn bị
+
+- Repository GitHub (bật GitHub Actions).
+- Container registry: khuyến nghị GHCR (GitHub Container Registry).
+- Kubernetes cluster có cài ArgoCD.
+
+Quyền/secret cần thiết:
+- Workflow đã cấu hình dùng `GITHUB_TOKEN` để push image lên GHCR. Hãy đảm bảo workflow có `permissions: packages: write, contents: write` (đã thiết lập sẵn trong file workflow).
+- Nếu dùng Docker Hub thay cho GHCR: tạo secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` và chỉnh lại bước login + biến `REGISTRY`/`IMAGE_NAME` trong workflow.
+
+=== 12.2 Cài ArgoCD (một lần trên cluster)
+
+[source,batch]
+----
+REM Cài đặt (namespace argocd)
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+REM Lấy password admin mặc định (tên pod server)
+kubectl -n argocd get pods
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+REM Mở UI (port-forward)
+kubectl -n argocd port-forward svc/argocd-server 8081:443
+----
+
+Mở trình duyệt: `https://localhost:8081` → đăng nhập `admin / <password ở trên>`.
+
+=== 12.3 Khai báo ArgoCD Application (GitOps)
+
+Sử dụng file mẫu `k8s/argocd-application.yaml` (sẵn trong repo). Sửa lại `repoURL` (điểm tới repo của bạn) và `targetRevision` (nhánh, mặc định `main`). Sau đó apply:
+
+[source,batch]
+----
+kubectl apply -f k8s\argocd-application.yaml
+----
+
+ArgoCD sẽ theo dõi thư mục `k8s/` trong repo và tự sync khi manifest thay đổi.
+
+=== 12.4 Thiết lập workflow GitHub Actions
+
+File workflow đã được thêm: `.github/workflows/ci-cd.yml` với 3 job:
+- Build & Test (Gradle, JDK 17)
+- Build & Push image (Docker Buildx → GHCR)
+- Cập nhật tag image trong `k8s/kustomization.yaml` bằng Kustomize và commit/push
+
+Luồng hoạt động:
+1) Push vào nhánh `main` sẽ kích hoạt workflow.
+2) Image được build từ `complete/` và push lên `ghcr.io/<owner>/securingweb` với tag `latest` và `<git-sha>`.
+3) Workflow chạy `kustomize edit set image securingweb=ghcr.io/<owner>/securingweb:<git-sha>` để cập nhật `k8s/kustomization.yaml`, commit và push.
+4) ArgoCD phát hiện thay đổi manifest và tự đồng bộ triển khai với image mới.
+
+Ghi chú:
+- Không cần cấp kubeconfig cho GitHub Actions vì deploy do ArgoCD xử lý.
+- Nếu repo là private, cần cấu hình ArgoCD có thể truy cập repo (thêm repo credentials trong ArgoCD).
+- Nếu dùng Docker Hub thay GHCR, chỉnh bước login và biến `REGISTRY`, `IMAGE_NAME` trong workflow.
+
+=== 12.5 Khắc phục sự cố CI/CD
+
+- Push image lên GHCR lỗi `denied`: kiểm tra `permissions` trong workflow (`packages: write`) và bật GHCR cho tổ chức/cá nhân.
+- ArgoCD `OutOfSync` hoặc `Progressing` lâu: xem events/logs của `securingweb-app` và MySQL, kiểm tra secrets/connection DB.
+- Kustomize báo không tìm thấy image: đảm bảo trong `k8s/app-deployment.yaml` đang dùng tên image `securingweb:<tag>` để lệnh `kustomize edit set image securingweb=...` bắt được và ghi đè.
+
+== 13) License
+
+Phát hành theo giấy phép trong `LICENSE.txt`.
